@@ -243,7 +243,7 @@ def render_stacked_bar_chart(day_labels, chart_series, out_path):
 
 def format_summary_text(start_local, end_local, total_kwh, total_cost, circuit_kwh, circuit_cost):
     date_range = f"{start_local.strftime('%b %d')} - {(end_local - datetime.timedelta(days=1)).strftime('%b %d, %Y')}"
-    lines = [f"*Weekly Energy Summary* ({date_range}, Pacific time)", ""]
+    lines = [f"*Weekly Energy Summary* ({date_range})", ""]
     lines.append(f"*Total usage:* {total_kwh:.1f} kWh")
     lines.append(f"*Total cost:* ${total_cost:,.2f}")
 
