@@ -231,10 +231,6 @@ def render_stacked_bar_chart(day_labels, chart_series, out_path):
         "Daily Energy Usage by Circuit", fontsize=15, fontweight="bold",
         color="#22252A", loc="left", pad=14,
     )
-    ax.text(
-        0.0, 1.06, "Pacific time", transform=ax.transAxes,
-        fontsize=9.5, color="#9AA0AB",
-    )
 
     legend = ax.legend(
         loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=9.5,
