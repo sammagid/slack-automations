@@ -1,0 +1,4 @@
+pyemvue>=0.18.0
+matplotlib>=3.8
+python-dateutil>=2.8
+slack_sdk>=3.27

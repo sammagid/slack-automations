@@ -1,0 +1,30 @@
+name: Weekly Energy Summary
+
+on:
+  schedule:
+    # Every Monday at 13:00 UTC (~6am Pacific / 9am Eastern). Adjust to taste.
+    - cron: "0 13 * * 1"
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+
+jobs:
+  send-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekly energy summary
+        env:
+          EMPORIA_EMAIL: ${{ secrets.EMPORIA_EMAIL }}
+          EMPORIA_PASSWORD: ${{ secrets.EMPORIA_PASSWORD }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        run: python weekly_energy_summary.py
