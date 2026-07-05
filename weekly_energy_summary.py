@@ -2,11 +2,14 @@
 """
 Weekly Emporia Vue energy summary -> Slack.
 
-Pulls the last 7 days of circuit-level usage from an Emporia Vue account via
-pyemvue, in both kWh and $ (Emporia computes $ itself from your configured
-cost schedule - no manual rate math on this end). Renders a stacked bar
-chart (one bar per day, one stack segment per circuit) and posts both the
-numbers and the chart image to a Slack channel.
+Runs Sundays at 5:00pm Pacific (see the GitHub Actions workflow for how DST
+is handled). Pulls the last 7 days of circuit-level usage from an Emporia
+Vue account via pyemvue, in both kWh and $ (Emporia computes $ itself from
+your configured cost schedule - no manual rate math on this end). The 7-day
+window and all day labels are always in Pacific time, regardless of what
+timezone (if any) is configured on the Emporia device itself. Renders a
+stacked bar chart (one bar per day, one stack segment per circuit) and posts
+both the numbers and the chart image to a Slack channel.
 
 Required environment variables:
     EMPORIA_EMAIL          Emporia account email
@@ -35,6 +38,7 @@ from pyemvue import PyEmVue
 from pyemvue.enums import Scale, Unit
 
 DAYS = 7  # always summarize the trailing 7 days
+PACIFIC_TZ = dateutil.tz.gettz("America/Los_Angeles")
 
 
 def env(name, default=None, required=False):
@@ -76,24 +80,33 @@ def collect_devices(vue):
     return by_gid
 
 
-def get_week_window(devices_by_gid):
-    """Use the timezone of the first device (falls back to UTC) to build a
-    window of DAYS full local days ending at the most recent local
-    midnight."""
-    tz_name = None
-    for device in devices_by_gid.values():
-        if device.time_zone:
-            tz_name = device.time_zone
-            break
-    tz = dateutil.tz.gettz(tz_name) if tz_name else dateutil.tz.tzutc()
-
-    local_now = datetime.datetime.now(tz)
+def get_week_window():
+    """Builds a window of DAYS full Pacific-time days ending at the most
+    recent Pacific midnight, regardless of what timezone (if any) is
+    configured on the Emporia device itself."""
+    local_now = datetime.datetime.now(PACIFIC_TZ)
     end_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     start_local = end_local - datetime.timedelta(days=DAYS)
 
     end_utc = end_local.astimezone(dateutil.tz.tzutc()).replace(tzinfo=None)
     start_utc = start_local.astimezone(dateutil.tz.tzutc()).replace(tzinfo=None)
-    return start_utc, end_utc
+    return start_local, end_local, start_utc, end_utc
+
+
+def is_main_channel(channel):
+    """Identifies the whole-home aggregate channel. Emporia doesn't
+    consistently populate `channel.name` as the literal string "Main" for
+    this channel - on some accounts it comes back as None or "" instead,
+    which (if unhandled) shows up as a bogus "None" circuit and silently
+    double-counts the whole-home total on top of the real circuits. The
+    channel `type` field is the more reliable signal (pyemvue documents
+    "Main", "FiftyAmp", "FiftyAmpBidirectional" as known types), so that's
+    checked first."""
+    if channel.type == "Main":
+        return True
+    if channel.name in (None, "", "Main"):
+        return True
+    return False
 
 
 def fetch_usage(vue, devices_by_gid, start_utc, end_utc, unit):
@@ -101,13 +114,11 @@ def fetch_usage(vue, devices_by_gid, start_utc, end_utc, unit):
     (Unit.KWH.value or Unit.USD.value).
 
     Returns:
-        day_labels: list[str] len == DAYS
         main_by_day: list[float] len == DAYS (whole-home total, summed
-                     across any "Main" channels found)
+                     across any Main channels found - see is_main_channel)
         circuit_values: dict[circuit_name] -> list[float] len == DAYS
         found_main: bool
     """
-    day_labels = None
     main_by_day = [0.0] * DAYS
     circuit_values = defaultdict(lambda: [0.0] * DAYS)
     found_main = False
@@ -118,7 +129,7 @@ def fetch_usage(vue, devices_by_gid, start_utc, end_utc, unit):
             device_label_prefix = f"{device.device_name or device.device_gid}: "
 
         for channel in device.channels:
-            usage_list, chart_start = vue.get_chart_usage(
+            usage_list, _chart_start = vue.get_chart_usage(
                 channel,
                 start_utc,
                 end_utc,
@@ -133,13 +144,7 @@ def fetch_usage(vue, devices_by_gid, start_utc, end_utc, unit):
             usage_list = (usage_list + [0.0] * DAYS)[:DAYS]
             usage_list = [u or 0.0 for u in usage_list]
 
-            if day_labels is None:
-                day_labels = [
-                    (chart_start + datetime.timedelta(days=i)).strftime("%a %m/%d")
-                    for i in range(DAYS)
-                ]
-
-            if channel.name == "Main":
+            if is_main_channel(channel):
                 found_main = True
                 for i, u in enumerate(usage_list):
                     main_by_day[i] += u
@@ -148,13 +153,16 @@ def fetch_usage(vue, devices_by_gid, start_utc, end_utc, unit):
                 for i, u in enumerate(usage_list):
                     circuit_values[name][i] += u
 
-    if day_labels is None:
-        day_labels = [
-            (start_utc + datetime.timedelta(days=i)).strftime("%a %m/%d")
-            for i in range(DAYS)
-        ]
+    return main_by_day, dict(circuit_values), found_main
 
-    return day_labels, main_by_day, dict(circuit_values), found_main
+
+def get_day_labels(start_local):
+    """Day labels for the chart x-axis, always in Pacific time regardless
+    of what the Emporia API's own bucket-start timestamps say."""
+    return [
+        (start_local + datetime.timedelta(days=i)).strftime("%a %m/%d")
+        for i in range(DAYS)
+    ]
 
 
 def add_unmonitored_segment(main_kwh_by_day, circuit_kwh):
@@ -189,7 +197,7 @@ def render_stacked_bar_chart(day_labels, chart_series, out_path):
     ax.set_xticks(list(x))
     ax.set_xticklabels(day_labels, rotation=0)
     ax.set_ylabel("kWh")
-    ax.set_title("Daily Energy Usage by Circuit")
+    ax.set_title("Daily Energy Usage by Circuit (Pacific time)")
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=8, borderaxespad=0)
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     fig.tight_layout()
@@ -197,9 +205,9 @@ def render_stacked_bar_chart(day_labels, chart_series, out_path):
     plt.close(fig)
 
 
-def format_summary_text(start_utc, end_utc, total_kwh, total_cost, circuit_kwh, circuit_cost):
-    date_range = f"{start_utc.strftime('%b %d')} - {(end_utc - datetime.timedelta(days=1)).strftime('%b %d, %Y')}"
-    lines = [f"*Weekly Energy Summary* ({date_range})", ""]
+def format_summary_text(start_local, end_local, total_kwh, total_cost, circuit_kwh, circuit_cost):
+    date_range = f"{start_local.strftime('%b %d')} - {(end_local - datetime.timedelta(days=1)).strftime('%b %d, %Y')}"
+    lines = [f"*Weekly Energy Summary* ({date_range}, Pacific time)", ""]
     lines.append(f"*Total usage:* {total_kwh:.1f} kWh")
     lines.append(f"*Total cost:* ${total_cost:,.2f}")
 
@@ -242,12 +250,13 @@ def main():
         print("ERROR: no Emporia devices found on this account", file=sys.stderr)
         sys.exit(1)
 
-    start_utc, end_utc = get_week_window(devices_by_gid)
+    start_local, end_local, start_utc, end_utc = get_week_window()
+    day_labels = get_day_labels(start_local)
 
-    day_labels, main_kwh_by_day, circuit_kwh, found_main = fetch_usage(
+    main_kwh_by_day, circuit_kwh, found_main = fetch_usage(
         vue, devices_by_gid, start_utc, end_utc, unit=Unit.KWH.value
     )
-    _, main_cost_by_day, circuit_cost, _ = fetch_usage(
+    main_cost_by_day, circuit_cost, _ = fetch_usage(
         vue, devices_by_gid, start_utc, end_utc, unit=Unit.USD.value
     )
 
@@ -262,7 +271,7 @@ def main():
     circuit_cost_totals = {name: sum(vals) for name, vals in circuit_cost.items()}
 
     text = format_summary_text(
-        start_utc, end_utc, total_kwh, total_cost, circuit_kwh_totals, circuit_cost_totals
+        start_local, end_local, total_kwh, total_cost, circuit_kwh_totals, circuit_cost_totals
     )
 
     chart_series = add_unmonitored_segment(main_kwh_by_day, circuit_kwh)

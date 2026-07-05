@@ -1,6 +1,6 @@
 # Weekly Energy Summary (Emporia Vue -> Slack)
 
-Every Monday (or on demand), this GitHub Action:
+Every Sunday at 5:00pm Pacific time (or on demand), this GitHub Action:
 
 1. Logs into your Emporia Vue account with [`pyemvue`](https://github.com/magico13/PyEmVue)
 2. Pulls the last 7 days of usage for every circuit, in both kWh and $
@@ -52,18 +52,39 @@ not environment secrets — no need for the extra approval-gate machinery here):
 ## 4. Enable the workflow
 
 Commit this repo (or these files into an existing repo) and push. The
-workflow runs automatically every Monday at 13:00 UTC. You can also trigger
-it immediately from the **Actions** tab → "Weekly Energy Summary" → **Run workflow**,
-which is the easiest way to test your secrets before waiting for the schedule.
+workflow is scheduled to run every Sunday at 5:00pm Pacific time. You can
+also trigger it immediately from the **Actions** tab → "Weekly Energy Summary"
+→ **Run workflow**, which is the easiest way to test your secrets before
+waiting for the schedule (manual runs always execute immediately, regardless
+of time).
 
-Adjust the cron schedule in `.github/workflows/weekly-energy-summary.yml` if
-you want a different day/time — the schedule is in UTC.
+**Why the workflow file has two `cron` lines:** GitHub Actions schedules are
+always in UTC, and Pacific time shifts by an hour between PST and PDT
+depending on daylight saving. To land on 5:00pm Pacific year-round, the
+workflow schedules for both possible UTC times (one for PDT, one for PST),
+and a check step at the start of the job compares against the actual current
+Pacific hour and skips the run if it's the "wrong" one for that time of
+year. Manual runs (`workflow_dispatch`) skip this check and always run.
+
+If you want a different day/time, edit both `cron` lines in
+`.github/workflows/weekly-energy-summary.yml` (they should be 1 hour apart —
+UTC in winter, UTC-1 in summer, relative to your target Pacific time), and
+update the `hour=17` check inside the same file to match your target hour
+(24-hour, Pacific).
 
 ## Notes on how usage is categorized
 
+- The 7-day window and all chart/summary dates are always in **Pacific
+  time**, computed directly rather than relying on whatever timezone (if
+  any) is configured on your Emporia device.
 - Emporia's "Main" channel represents your whole-home total. The script
   sums this separately from individual circuits, so it isn't double-counted
-  in the stacked chart.
+  in the stacked chart. Emporia doesn't always populate that channel's
+  `name` field as the string `"Main"` — on some accounts it's blank or
+  null — so detection also checks the channel's `type` field, which is
+  more reliable. This total feeds the *Total usage* / *Total cost* lines
+  at the top of the message rather than appearing as its own line in "By
+  circuit" or as its own bar segment.
 - If the sum of your monitored circuits is less than the Main total, the
   difference is shown as an **"Unmonitored/Other"** segment in the chart,
   mirroring the "Balance" figure in the Emporia app.
