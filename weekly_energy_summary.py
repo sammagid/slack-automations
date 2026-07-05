@@ -184,24 +184,64 @@ def add_unmonitored_segment(main_kwh_by_day, circuit_kwh):
 
 
 def render_stacked_bar_chart(day_labels, chart_series, out_path):
-    fig, ax = plt.subplots(figsize=(9, 5), dpi=150)
+    # A muted, modern qualitative palette (avoids matplotlib's saturated
+    # defaults). "Unmonitored/Other" always gets a neutral gray so it reads
+    # as a residual, not just another circuit.
+    palette = [
+        "#5B8FF9", "#63C7B2", "#F6BD16", "#F08E64",
+        "#9270CA", "#5FC9D6", "#E86C6C", "#8DD35F",
+    ]
+    other_color = "#C9CDD4"
 
-    x = range(len(day_labels))
+    fig, ax = plt.subplots(figsize=(9, 5.2), dpi=150)
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    x = list(range(len(day_labels)))
     bottom = [0.0] * len(day_labels)
-    colors = plt.get_cmap("tab20").colors
+    color_i = 0
 
-    for idx, (name, vals) in enumerate(chart_series.items()):
-        ax.bar(x, vals, bottom=bottom, label=name, color=colors[idx % len(colors)])
+    for name, vals in chart_series.items():
+        if name == "Unmonitored/Other":
+            color = other_color
+        else:
+            color = palette[color_i % len(palette)]
+            color_i += 1
+        ax.bar(
+            x, vals, bottom=bottom, label=name, color=color,
+            width=0.62, edgecolor="none", linewidth=0, zorder=3,
+        )
         bottom = [b + v for b, v in zip(bottom, vals)]
 
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(day_labels, rotation=0)
-    ax.set_ylabel("kWh")
-    ax.set_title("Daily Energy Usage by Circuit (Pacific time)")
-    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=8, borderaxespad=0)
-    ax.grid(axis="y", linestyle="--", alpha=0.4)
-    fig.tight_layout()
-    fig.savefig(out_path)
+    # Strip the box down to just a faint baseline.
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color("#D8DAE0")
+    ax.spines["bottom"].set_linewidth(0.8)
+    ax.tick_params(axis="both", length=0)
+
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(True, color="#EDEEF2", linewidth=0.9, zorder=0)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(day_labels, fontsize=10, color="#4A4E57")
+    ax.tick_params(axis="y", labelsize=9, labelcolor="#8A8F99")
+    ax.set_ylabel("kWh", fontsize=10, color="#8A8F99", labelpad=8)
+    ax.set_title(
+        "Daily Energy Usage by Circuit", fontsize=15, fontweight="bold",
+        color="#22252A", loc="left", pad=14,
+    )
+    ax.text(
+        0.0, 1.06, "Pacific time", transform=ax.transAxes,
+        fontsize=9.5, color="#9AA0AB",
+    )
+
+    legend = ax.legend(
+        loc="upper left", bbox_to_anchor=(1.02, 1.0), fontsize=9.5,
+        frameon=False, labelcolor="#4A4E57", handlelength=1.2, handleheight=1.2,
+    )
+
+    fig.savefig(out_path, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
 
