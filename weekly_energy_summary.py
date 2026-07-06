@@ -285,3 +285,27 @@ def main():
         total_kwh = sum(sum(vals) for vals in circuit_kwh.values())
         total_cost = sum(sum(vals) for vals in circuit_cost.values())
 
+    circuit_kwh_totals = {name: sum(vals) for name, vals in circuit_kwh.items()}
+    circuit_cost_totals = {name: sum(vals) for name, vals in circuit_cost.items()}
+
+    text = format_summary_text(
+        start_local, end_local, total_kwh, total_cost, circuit_kwh_totals, circuit_cost_totals
+    )
+
+    chart_series = circuit_kwh
+    chart_path = "/tmp/weekly_energy_chart.png"
+    render_stacked_bar_chart(day_labels, chart_series, chart_path)
+
+    post_to_slack(text, chart_path)
+    print("Posted weekly energy summary to Slack.")
+    print(text)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        import traceback
+        print("ERROR: unhandled exception during run:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
