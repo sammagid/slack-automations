@@ -101,7 +101,7 @@ def main():
 
     message = (
         f"\U0001F327\uFE0F There is a {chance:.0f}% chance rain on the forecast "
-        f"tomorrow for {LOCATION_NAME} tomorrow. You might want to bring in the couch cushions!"
+        f"tomorrow for {LOCATION_NAME}. You might want to bring in the couch cushions!"
     )
     post_to_slack(message)
     print("Posted rain reminder to Slack.")
