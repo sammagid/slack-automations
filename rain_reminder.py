@@ -28,7 +28,7 @@ PACIFIC_TZ = dateutil.tz.gettz("America/Los_Angeles")
 
 # Only send a reminder if tomorrow's max chance of rain is at least this.
 # Any lower and it stays quiet - adjust to taste.
-RAIN_THRESHOLD_PERCENT = 0
+RAIN_THRESHOLD_PERCENT = 10
 
 
 def env(name, default=None, required=False):
