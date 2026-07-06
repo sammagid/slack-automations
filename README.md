@@ -15,6 +15,13 @@ Every Sunday at 5:00pm Pacific time (or on demand), this GitHub Action:
 - `requirements.txt` — Python dependencies
 - `.github/workflows/weekly-energy-summary.yml` — the schedule + CI job
 
+## What gets posted to Slack
+
+Two messages, in order:
+1. A short greeting: "Here is your energy summary for the past week! Love, Sam"
+2. The chart image, with the numbers (total kWh, total cost, and a per-circuit
+   breakdown) attached as the file's comment
+
 ## 1. Set up a cost schedule in Emporia (for the $ figures)
 
 The $ numbers come from Emporia's own `Unit.USD` usage endpoint. If you
@@ -85,6 +92,10 @@ update the `hour=17` check inside the same file to match your target hour
   more reliable. This total feeds the *Total usage* / *Total cost* lines
   at the top of the message rather than appearing as its own line in "By
   circuit" or as its own bar segment.
+- The chart shows only actual monitored circuits — no "Other"/"Unmonitored"
+  catch-all segment. If your circuits don't fully add up to the whole-home
+  total, that gap simply isn't shown in the chart (it's still reflected in
+  the *Total usage*/*Total cost* lines at the top, which come from Main).
 - If the sum of your monitored circuits is less than the Main total, the
   difference is shown as an **"Unmonitored/Other"** segment in the chart,
   mirroring the "Balance" figure in the Emporia app.

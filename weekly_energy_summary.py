@@ -165,33 +165,13 @@ def get_day_labels(start_local):
     ]
 
 
-def add_unmonitored_segment(main_kwh_by_day, circuit_kwh):
-    """Adds an 'Unmonitored/Other' series for the gap between the
-    whole-home Main reading and the sum of monitored circuits (mirrors the
-    Emporia app's "Balance"). Returns a new dict; does not mutate input."""
-    chart_series = dict(circuit_kwh)
-
-    if any(m > 0 for m in main_kwh_by_day):
-        sum_circuits = [0.0] * DAYS
-        for vals in circuit_kwh.values():
-            for i, u in enumerate(vals):
-                sum_circuits[i] += u
-        balance = [max(0.0, main_kwh_by_day[i] - sum_circuits[i]) for i in range(DAYS)]
-        if any(b > 0.01 for b in balance):
-            chart_series["Unmonitored/Other"] = balance
-
-    return chart_series
-
-
-def render_stacked_bar_chart(day_labels, chart_series, out_path):
+def render_stacked_bar_chart(day_labels, circuit_kwh, out_path):
     # A muted, modern qualitative palette (avoids matplotlib's saturated
-    # defaults). "Unmonitored/Other" always gets a neutral gray so it reads
-    # as a residual, not just another circuit.
+    # defaults).
     palette = [
         "#5B8FF9", "#63C7B2", "#F6BD16", "#F08E64",
         "#9270CA", "#5FC9D6", "#E86C6C", "#8DD35F",
     ]
-    other_color = "#C9CDD4"
 
     fig, ax = plt.subplots(figsize=(9, 5.2), dpi=150)
     fig.patch.set_facecolor("white")
@@ -199,25 +179,18 @@ def render_stacked_bar_chart(day_labels, chart_series, out_path):
 
     x = list(range(len(day_labels)))
     bottom = [0.0] * len(day_labels)
-    color_i = 0
 
-    for name, vals in chart_series.items():
-        if name == "Unmonitored/Other":
-            color = other_color
-        else:
-            color = palette[color_i % len(palette)]
-            color_i += 1
+    for i, (name, vals) in enumerate(circuit_kwh.items()):
+        color = palette[i % len(palette)]
         ax.bar(
             x, vals, bottom=bottom, label=name, color=color,
             width=0.62, edgecolor="none", linewidth=0, zorder=3,
         )
         bottom = [b + v for b, v in zip(bottom, vals)]
 
-    # Strip the box down to just a faint baseline.
-    for side in ("top", "right", "left"):
+    # No border at all - just gridlines for reference.
+    for side in ("top", "right", "left", "bottom"):
         ax.spines[side].set_visible(False)
-    ax.spines["bottom"].set_color("#D8DAE0")
-    ax.spines["bottom"].set_linewidth(0.8)
     ax.tick_params(axis="both", length=0)
 
     ax.set_axisbelow(True)
@@ -237,14 +210,13 @@ def render_stacked_bar_chart(day_labels, chart_series, out_path):
         frameon=False, labelcolor="#4A4E57", handlelength=1.2, handleheight=1.2,
     )
 
-    fig.savefig(out_path, bbox_inches="tight", facecolor="white")
+    fig.savefig(out_path, bbox_inches="tight", facecolor="white", edgecolor="none")
     plt.close(fig)
 
 
 def format_summary_text(start_local, end_local, total_kwh, total_cost, circuit_kwh, circuit_cost):
     date_range = f"{start_local.strftime('%b %d')} - {(end_local - datetime.timedelta(days=1)).strftime('%b %d, %Y')}"
-    lines = ["Here is your energy summary for the past week!", "", "Love,", "Sam"]
-    lines += [f"*Weekly Energy Summary* ({date_range})", ""]
+    lines = [f"*Weekly Energy Summary* ({date_range}, Pacific time)", ""]
     lines.append(f"*Total usage:* {total_kwh:.1f} kWh")
     lines.append(f"*Total cost:* ${total_cost:,.2f}")
 
@@ -267,6 +239,14 @@ def post_to_slack(text, image_path):
     token = env("SLACK_BOT_TOKEN", required=True)
     channel = env("SLACK_CHANNEL_ID", required=True)
     client = WebClient(token=token)
+
+    greeting = "Here is your energy summary for the past week!\n\nLove,\nSam"
+
+    try:
+        client.chat_postMessage(channel=channel, text=greeting)
+    except SlackApiError as e:
+        print(f"ERROR: Slack greeting message failed: {e.response['error']}", file=sys.stderr)
+        sys.exit(1)
 
     try:
         client.files_upload_v2(
@@ -305,20 +285,3 @@ def main():
         total_cost = sum(sum(vals) for vals in circuit_cost.values())
 
     circuit_kwh_totals = {name: sum(vals) for name, vals in circuit_kwh.items()}
-    circuit_cost_totals = {name: sum(vals) for name, vals in circuit_cost.items()}
-
-    text = format_summary_text(
-        start_local, end_local, total_kwh, total_cost, circuit_kwh_totals, circuit_cost_totals
-    )
-
-    chart_series = add_unmonitored_segment(main_kwh_by_day, circuit_kwh)
-    chart_path = "/tmp/weekly_energy_chart.png"
-    render_stacked_bar_chart(day_labels, chart_series, chart_path)
-
-    post_to_slack(text, chart_path)
-    print("Posted weekly energy summary to Slack.")
-    print(text)
-
-
-if __name__ == "__main__":
-    main()
