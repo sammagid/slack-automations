@@ -16,17 +16,32 @@ jobs:
     steps:
       - name: Determine whether to run
         id: check
+        env:
+          TRIGGERING_CRON: ${{ github.event.schedule }}
         run: |
           if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          hour=$(TZ="America/Los_Angeles" date +%H)
-          if [ "$hour" = "18" ]; then
+
+          # GitHub Actions doesn't guarantee runs fire exactly on time -
+          # under load, a scheduled run can be delayed by minutes or even
+          # hours. So rather than checking the CURRENT wall-clock hour
+          # (which breaks the moment a run is delayed past it), we check
+          # which SEASON it is (PDT vs PST) and match that against which of
+          # the two cron entries actually triggered this run. That stays
+          # correct no matter how late the run fires.
+          PDT_CRON="0 1 * * *"  # intended for 6:00pm PDT
+          PST_CRON="0 2 * * *"  # intended for 6:00pm PST
+          current_zone=$(TZ="America/Los_Angeles" date +%Z)
+
+          if [ "$current_zone" = "PDT" ] && [ "$TRIGGERING_CRON" = "$PDT_CRON" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$current_zone" = "PST" ] && [ "$TRIGGERING_CRON" = "$PST_CRON" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping this trigger: it's ${hour}:00 Pacific right now, not the intended 18:00 (the other scheduled cron entry handles this half of the year)."
+            echo "Skipping this trigger ('$TRIGGERING_CRON'): current Pacific zone is $current_zone, which is handled by the other cron entry."
           fi
 
       - name: Check out repo

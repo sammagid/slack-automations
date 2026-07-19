@@ -80,16 +80,23 @@ of time).
 **Why the workflow file has two `cron` lines:** GitHub Actions schedules are
 always in UTC, and Pacific time shifts by an hour between PST and PDT
 depending on daylight saving. To land on 5:00pm Pacific year-round, the
-workflow schedules for both possible UTC times (one for PDT, one for PST),
-and a check step at the start of the job compares against the actual current
-Pacific hour and skips the run if it's the "wrong" one for that time of
-year. Manual runs (`workflow_dispatch`) skip this check and always run.
+workflow schedules for both possible UTC times (one for PDT, one for PST).
+A check step at the start of the job looks at which of the two cron entries
+actually triggered this run (via GitHub's `github.event.schedule`) and
+compares that against whether Pacific time is currently in daylight saving
+or not, running only if they match. This is deliberately based on the
+*season*, not the *current clock hour* — GitHub Actions doesn't guarantee
+scheduled runs fire exactly on time (delays of minutes to hours are normal
+under load), so a check based on "is it currently 5pm" would incorrectly
+skip a run that's simply running late. Manual runs (`workflow_dispatch`)
+skip this check entirely and always run.
 
 If you want a different day/time, edit both `cron` lines in
 `.github/workflows/weekly-energy-summary.yml` (they should be 1 hour apart —
 UTC in winter, UTC-1 in summer, relative to your target Pacific time), and
-update the `hour=17` check inside the same file to match your target hour
-(24-hour, Pacific).
+update the matching `PDT_CRON` / `PST_CRON` values inside the "Determine
+whether to run" step in the same file so they stay in sync with the new
+`cron` lines.
 
 ## Notes on how usage is categorized
 
@@ -190,4 +197,3 @@ second case is normal and not a failure.
 The same two-`cron`-lines DST handling from the energy summary applies here
 too (see that section above for why) — just for 18:00 (6:00pm) instead of
 17:00.
-
